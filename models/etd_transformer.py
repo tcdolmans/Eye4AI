@@ -10,7 +10,8 @@ from pipeline.dataset_constructor import return_data_loaders, replace_nans # noq
 
 
 class MLP(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0):
+    def __init__(self, in_features, hidden_features=None,
+                 out_features=None, act_layer=nn.GELU, drop=0):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
@@ -30,13 +31,10 @@ class MLP(nn.Module):
 
 class ETPatchEmbed(nn.Module):
     """
-    embed_dim = 250
-    1. Split the input data into 12 patches (3 seconds)
-    2. Get linear embedding of each patch, shape = (2, 250) --> (1, 500)
-       All patches for sample = 12, 500
-    3. Add position embedding and [cls] to linear embedding (12, 500) --> (13, 500)
+    Takes a 1D convolution of a patch of ET data to embed in a lower dimensional space.
     """
-    def __init__(self, sample_height=3000, sample_width=3, patch_size=125, in_chans=64, embed_dim=12):
+    def __init__(self, sample_height=300, sample_width=3,
+                 patch_size=15, in_chans=64, embed_dim=15):
         super().__init__()
         sample_size = tuple((sample_height, sample_width))
         patch_size = tuple((patch_size, sample_width))
@@ -44,38 +42,34 @@ class ETPatchEmbed(nn.Module):
         self.sample_size = sample_size
         self.patch_size = patch_size
         self.num_patches = num_patches
-        self.proj = nn.Conv2d(in_channels=in_chans, out_channels=embed_dim, kernel_size=patch_size, stride=patch_size)
-        self.conv_layer = nn.Conv1d(in_channels=3, out_channels=48, kernel_size=100, stride=100)
+        self.conv_layer = nn.Conv1d(in_channels=3, out_channels=embed_dim,
+                                    kernel_size=15, stride=15)
 
     def forward(self, x):
-        # B, C, H, W = x.shape
-        # assert H == self.sample_size[0] and W == self.sample_size[1], \
-        #     f"Input image size ({H}*{W}) doesn't match model ({self.sample_size[0]}*{self.sample_size[1]})."
-        # print(x.shape)
         x = self.conv_layer(x.permute(0, 2, 1))
-        # print(x.shape)
+        print(x.shape)
         return x
 
 
 class ETMLP(nn.Module):
     def __init__(self, input_size=9216, hidden_size=4096, num_classes=31,
-                 patch_size=100, in_chans=4, embed_dim=12):
+                 patch_size=100, in_chans=4, embed_dim=15):
         super().__init__()
         self.patch_embed = ETPatchEmbed(
-            sample_height=3000,
-            sample_width=4,
-            patch_size=125,
-            in_chans=4,
+            sample_height=300,
+            sample_width=3,
+            patch_size=15,
+            in_chans=3,
             embed_dim=12)
         self.flat = nn.Flatten()
-        self.fc1 = nn.Linear(9000, 2048)
+        self.fc1 = nn.Linear(900, 2048)
         self.relu1 = nn.ReLU()
         self.fc2 = nn.Linear(2048, 1024)
         self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(1024, 64)
+        self.fc3 = nn.Linear(1024, 512)
         self.relu3 = nn.ReLU()
-        self.fc4 = nn.Linear(64, 1)
-        self.soft = nn.Softmax(dim=0)
+        self.fc4 = nn.Linear(512, 1)
+        # self.soft = nn.Softmax(dim=0)
         # Change to output batch_size, num_classes
         # Softmax for top 5?
 
@@ -92,7 +86,7 @@ class ETMLP(nn.Module):
         out = self.fc3(out)
         out = self.relu3(out)
         out = self.fc4(out)
-        out = self.soft(out)
+        # out = self.soft(out)
         return out
 
 
@@ -110,7 +104,9 @@ class ETAttention(nn.Module):
 
     def forward(self, x):
         B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+        qkv = self.qkv(x).reshape(B, N, 3,
+                                  self.num_heads, C //
+                                  self.num_heads).permute(2, 0, 3, 1, 4)
         q, k, v = qkv[0], qkv[1], qkv[2]   # torchscript cannot use tensor as tuple
 
         attn = (q @ k.transpose(-2, -1)) * self.scale
@@ -124,16 +120,18 @@ class ETAttention(nn.Module):
 
 
 class Block(nn.Module):
-    def __init__(self, dim, num_heads, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
+    def __init__(self, dim, num_heads, mlp_ratio=4.,
+                 qkv_bias=False, qk_scale=None, drop=0., attn_drop=0.,
                  act_layer=nn.GELU, norm_layer=nn.LayerNorm):
         super().__init__()
         self.norm1 = norm_layer(dim)
-        self.attn = ETAttention(
-            dim, num_heads=num_heads, qkv_bias=qkv_bias, qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
+        self.attn = ETAttention(dim, num_heads=num_heads, qkv_bias=qkv_bias,
+                                qk_scale=qk_scale, attn_drop=attn_drop, proj_drop=drop)
         self.drop = nn.Dropout(attn_drop)
         self.norm2 = norm_layer(dim)
         mlp_hidden_dim = int(dim * mlp_ratio)
-        self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim, act_layer=act_layer, drop=drop)
+        self.mlp = MLP(in_features=dim, hidden_features=mlp_hidden_dim,
+                       act_layer=act_layer, drop=drop)
 
     def forward(self, x):
         x = x + self.drop(self.attn(self.norm1(x)))
@@ -156,9 +154,10 @@ class ETTransformer(nn.Module):
         self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
         self.blocks = nn.ModuleList([
-            Block(
-                  dim=embed_dim, num_heads=num_heads, mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
-                  qk_scale=qk_scale, drop=drop_rate, attn_drop=attn_drop_rate, norm_layer=norm_layer)
+            Block(dim=embed_dim, num_heads=num_heads,
+                  mlp_ratio=mlp_ratio, qkv_bias=qkv_bias,
+                  qk_scale=qk_scale, drop=drop_rate,
+                  attn_drop=attn_drop_rate, norm_layer=norm_layer)
             for i in range(depth)])
         self.norm = norm_layer(embed_dim)
         self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
@@ -188,25 +187,20 @@ def train_one_epoch(epoch_index):
     running_loss = 0
     last_loss = 0
 
-    # Here, we use enumerate(training_loader) instead of
-    # iter(training_loader) so that we can track the batch
-    # index and do some intra-epoch reporting.
     for i, data in enumerate(train_dataloader):
-        labels = data[:, 0, 0].float()
-        labels = labels.to(torch.device('cuda'))
+        labels = data[:, 0, 0]
+        # labels = labels.to(torch.device('cuda'))
         inputs = data[:, 1:, 1:]  # Whole batch, exclude label, exclude timestamps
-        inputs = replace_nans(inputs)
-        # conv_layer = nn.Conv1d(in_channels=3, out_channels=12, kernel_size=4, stride=250)
-        # output_tensor = conv_layer(inputs.permute(0, 2, 1).float())
-        # print(output_tensor)
-
         optimiser.zero_grad()
-        outputs = model(inputs).squeeze()
+        output = model(inputs).squeeze()
+        # output = output.view(64, -1, 31)
+        output = output.to(torch.device('cpu'))
+        # print(output.shape)
         # outputs = torch.tensor([list(out).index(max(out)) for out in outputs])
         # outputs = outputs.to(torch.device('cuda'))
         # outputs = torch.cuda.FloatTensor(outputs.float())
         # print(outputs, labels)
-        loss = loss_fn(outputs, labels)
+        loss = loss_fn(output, labels)
         # loss.requires_grad = True
         loss.backward()
         optimiser.step()
@@ -219,6 +213,7 @@ def train_one_epoch(epoch_index):
 
 
 def train_model(model, EPOCHS, init_loss):
+    epoch_number = 0
     for epoch in range(EPOCHS):
         print('EPOCH {}:'.format(epoch + 1))
 
@@ -249,14 +244,16 @@ if __name__ == "__main__":
     model = ETMLP()
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
-    # print(summary(model, (3000, 4)))
+    # print(summary(model, (300, 3)))
     loss_fn = nn.CrossEntropyLoss()
     optimiser = optim.Adam(model.parameters(), lr=1e-3, capturable=True)
-    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Pipeline', 'tensors'))
+    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'DS10'))
     files = list_files(folder)
-    train_dataloader, test_dataloader = return_data_loaders(files, 124, 2)
+    train_dataloader, test_dataloader = return_data_loaders(files, 124, 124)
+    # train_sample = next(iter(train_dataloader))
+    # test_sample = next(iter(test_dataloader))
+    # print(train_sample.shape, test_sample.shape)
 
-    epoch_number = 0
     EPOCHS = 5
     best_test_loss = 1_000_000.
     train_model(model, EPOCHS, best_test_loss)

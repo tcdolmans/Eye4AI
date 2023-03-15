@@ -1,12 +1,12 @@
 import os
 import sys
+import time
 import torch
 import numpy as np
 from scipy import stats
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader
 sys.path.insert(1, os.path.join(sys.path[0], '../'))
 from pipeline.utils import list_files # noqa
-import time
 
 
 def time_it(func):
@@ -44,10 +44,10 @@ def replace_nans(input_data, need_sanity_check=False):
         good_data = data[good_indexes]
         if len(good_data) == 0:
             return False
-        elif len(good_data) / len(data) < 0.85:  
-            #  The sample is rejected because it did not met the threshold of .85, or 85% of the evaluated over dimensions.
+        elif len(good_data) / len(data) < 0.85:
+            #  The sample is rejected because it did not met the threshold of .85.
             return False
-        # Craft linearly interpolated data over the seleceted data. Please refer to np.interp() when in doubt.
+        # Craft linearly interpolated data over the seleceted data.
         interpolated = np.interp(bad_indexes.nonzero()[0], good_indexes.nonzero()[0], good_data)
         data[bad_indexes] = interpolated
         return data
@@ -58,14 +58,14 @@ def replace_nans(input_data, need_sanity_check=False):
     return output
 
 
-# @time_it
+@time_it
 def downsample(input_tensor, dsf=10):
     """
-    Takes input_tensor and donsamples the data by down_sampling_frequency(dsf) by return a shortened array
-    which contains the mode for each of the sample windows. Can be altered to return !mode, e.g.,
-    mean, distribution, etc.
-    Little bit of unpacking and looping, hence the decorator. Please remember to switch it off when you are not testing
-
+    Takes input_tensor and donsamples the data by down_sampling_frequency(dsf)
+    by return a shortened array which contains the mode for each of the sample windows.
+    Can be altered to return !mode, e.g.,mean, distribution, etc.
+    Little bit of unpacking and looping, hence the decorator;
+    please remember to switch it off when you are not testing
     """
     ds = []
     for i in range(0, len(input_tensor), dsf):
@@ -78,7 +78,6 @@ def downsample(input_tensor, dsf=10):
 def downsample_task_tensor(file, dsf=10):
     tensor = torch.load(file)
     for i, t in enumerate(tensor):
-        print(i)
         labels = t[0].unsqueeze(0)
         _data = t[1:]
         _data = replace_nans(downsample(_data))
@@ -130,7 +129,7 @@ def split_ds_tensor(tensor, sampling_rate=100, selection_length=3):
 @time_it
 def return_data_loaders(files, train_idxs, test_idxs, batch_size=64):
     train = files[:-train_idxs]
-    test = files[-test_idxs:]
+    test = files[:-test_idxs]  # NOTE: usually is -test_idxs:, but this is for testing
     train_data_tensors = []
     test_data_tensors = []
     print("Loading training data")
@@ -138,30 +137,15 @@ def return_data_loaders(files, train_idxs, test_idxs, batch_size=64):
         print(file[-15:-10])
         split_tensors = split_tensor(torch.load(file))
         train_data_tensors.append(split_tensors)
-        # name_string = "DS10_{}_tensor.pt".format(file[-15:-10])
-        # torch.save(torch.cat(split_tensors), name_string)
     print("Loading testing data")
     for file in test:
         print(file[-15:-10])
         split_tensors = split_tensor(torch.load(file))
         test_data_tensors.append(split_tensors)
-        # name_string = "DS10_{}_tensor.pt".format(file[-15:-10])
-        # torch.save(torch.cat(split_tensors), name_string)
-        # print(len(test_data_tensors[:, 0]))
-    # for file in train:
-    #     if train_data_tensors is None:b
-    #         train_data_tensors = split_tensor(torch.load(file))
-    #     else:
-    #         train_data_tensors = torch.cat((train_data_tensors, split_tensor(torch.load(file))), dim=0)
-    #     print(np.shape(train_data_tensors), file[-15:-10])
-    # for file in test:
-    #     if test_data_tensors is None:
-    #         test_data_tensors = split_tensor(torch.load(file))
-    #     else:
-    #         test_data_tensors = torch.cat((test_data_tensors, split_tensor(torch.load(file))), dim=0)
-    #     print(np.shape(test_data_tensors), file[-15:-10])
-    train_dataloader = DataLoader(torch.cat(train_data_tensors), batch_size=batch_size, shuffle=True)
-    test_dataloader = DataLoader(torch.cat(test_data_tensors), batch_size=batch_size, shuffle=True)
+    train_dataloader = DataLoader(torch.cat(train_data_tensors),
+                                  batch_size=batch_size, shuffle=True)
+    test_dataloader = DataLoader(torch.cat(test_data_tensors),
+                                 batch_size=batch_size, shuffle=True)
     return train_dataloader, test_dataloader
 
 
@@ -176,7 +160,6 @@ if __name__ == "__main__":
         tensor = downsample_task_tensor(file)
         name_string = "DS10_{}_tensor.pt".format(file[-15:-10])
         torch.save(tensor, name_string)
-
 
     # train_dataloader, test_dataloader = return_data_loaders(files, 125, 2, 64)
     # # Train test split based on task. Eval acc per task to select interests.

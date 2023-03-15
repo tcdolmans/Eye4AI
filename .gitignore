@@ -1,3 +1,4 @@
 pipeline/tensors
 DS10
 __pycache__
+*.pyc
