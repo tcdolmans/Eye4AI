@@ -29,6 +29,7 @@ def alert_deprication(func):
     return wrapper
 
 
+# @time_it
 def replace_nans(input_data, need_sanity_check=False):
     """
     Takes some input tensor suitable for PyTorch, then linearly interpolates the Nans away.
@@ -58,7 +59,7 @@ def replace_nans(input_data, need_sanity_check=False):
     return output
 
 
-@time_it
+# @time_it
 def downsample(input_tensor, dsf=10):
     """
     Takes input_tensor and donsamples the data by down_sampling_frequency(dsf)
@@ -128,18 +129,18 @@ def split_ds_tensor(tensor, sampling_rate=100, selection_length=3):
 
 @time_it
 def return_data_loaders(files, train_idxs, test_idxs, batch_size=64):
-    train = files[:-train_idxs]
-    test = files[:-test_idxs]  # NOTE: usually is -test_idxs:, but this is for testing
+    train = files[:train_idxs]  # NOTE: usually is :train_idxs, but this is for testing
+    test = files[-test_idxs:]  # NOTE: usually is -test_idxs:, but this is for testing
     train_data_tensors = []
     test_data_tensors = []
     print("Loading training data")
     for file in train:
-        print(file[-15:-10])
+        # print(file[-15:-10])
         split_tensors = split_tensor(torch.load(file))
         train_data_tensors.append(split_tensors)
     print("Loading testing data")
     for file in test:
-        print(file[-15:-10])
+        # print(file[-15:-10])
         split_tensors = split_tensor(torch.load(file))
         test_data_tensors.append(split_tensors)
     train_dataloader = DataLoader(torch.cat(train_data_tensors),

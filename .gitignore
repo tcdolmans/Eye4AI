@@ -1,4 +1,7 @@
 pipeline/tensors
 DS10
+Old DS10
 __pycache__
 *.pyc
+*.pt
+*.png
