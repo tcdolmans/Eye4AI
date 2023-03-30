@@ -3,7 +3,39 @@ import numpy as np
 import os
 import torch
 from utils import list_files
-from dataset_constructor import replace_nans, downsample
+from scipy import stats
+import time
+
+
+def replace_nans(input_tensor):
+
+    def pad(data):
+        bad_indexes = np.isnan(data)
+        good_indexes = np.logical_not(bad_indexes)
+        good_data = data[good_indexes]
+        if len(good_data) == 0:
+            return False
+        elif len(good_data) / len(data) < 0.85:
+            # print("Sample Rejected")
+            return False
+        interpolated = np.interp(bad_indexes.nonzero()[0], good_indexes.nonzero()[0], good_data)
+        data[bad_indexes] = interpolated
+        return data
+    output = torch.tensor(np.apply_along_axis(pad, 0, input_tensor))
+    # print(output)
+    return output
+
+
+def downsample(input_tensor, dsf=10):
+    """
+    Takes input_tensor and donsamples the data by dsf by return a shorteend array
+    that contains the mode for each of the sample windows.
+    """
+    ds_t = []
+    for i in range(0, len(input_tensor), dsf):
+        selection = stats.mode(input_tensor[i: i+dsf], axis=0, keepdims=True)[0][0]
+        ds_t.append(torch.tensor(np.array(selection)).unsqueeze(0))
+    return torch.cat(ds_t)
 
 
 def create_round_tensor(file_path):
@@ -59,6 +91,7 @@ def create_task_tensor(file_path):
             sesh_name = session[-10:-3] + session[-2:]
             for i, task in enumerate(sesh):
                 # 7 Tasks per session
+                start_time = time.time()
                 task_tensor = []
                 all_parts = list_files(task)
                 for part in all_parts:
@@ -67,18 +100,19 @@ def create_task_tensor(file_path):
                     print("Currently on ", pn)
                     p_row = torch.tensor(np.array((pn, pn, pn, pn))).unsqueeze(0)
                     df = pd.read_csv(part)
-                    # select only the columns we need, namely the 'n', 'x', 'y', 'dP' columns  
-                    data = df[['n', 'x', 'y', 'dP']]
-                    data = data.values
-                    data = replace_nans(downsample(data))
+                    data = df.values
+                    data = data[:, [0, 1, 2, 4]]
+                    data = downsample(data, 10)
                     data = torch.cat((p_row, data))
+                    data = replace_nans(data).unsqueeze(0)
                     task_tensor.append(data)
                 name_string = "DS10_{}_{}_tensor.pt".format(sesh_name, i)
-                torch.save(task_tensor, name_string)
-
+                torch.save(torch.tensor(task_tensor), name_string)
+                print("--- %s seconds ---" % (time.time() - start_time))
 
 if __name__ == "__main__":
     """"Creating Tensors below"""
     current_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..',
                                                 'Data', 'GazeBase', 'Data'))
     create_task_tensor(current_path)
+    

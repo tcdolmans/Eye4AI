@@ -12,25 +12,9 @@ sys.path.insert(1, os.path.join(sys.path[0], '../'))
 from pipeline.utils import list_files # noqa
 from pipeline.dataset_constructor import return_data_loaders, time_it # noqa
 
-
-class MLP(nn.Module):
-    def __init__(self, in_features, hidden_features=None,
-                 out_features=None, act_layer=nn.GELU, drop=0):
-        super().__init__()
-        out_features = out_features or in_features
-        hidden_features = hidden_features or in_features
-        self.fc1 = nn.Linear(in_features, hidden_features)
-        self.act = act_layer()
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.drop = nn.Dropout(drop)
-
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.act(x)
-        x = self.drop(x)
-        x = self.fc2(x)
-        x = self.drop(x)
-        return x
+"""
+This file is outdated because I am working in the notebooks instead.
+"""
 
 
 class ETPatchEmbed(nn.Module):
@@ -79,11 +63,11 @@ class ETMLP(nn.Module):
             embed_dim=15)
         self.num_classes = num_classes
         self.flat = nn.Flatten()
-        self.fc1 = nn.Linear(300, 2048)
+        self.fc1 = nn.Linear(300, 1024)
         self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(2048, hidden_size)
+        self.fc2 = nn.Linear(1024, 2048)
         self.relu2 = nn.ReLU()
-        self.fc3 = nn.Linear(hidden_size, 1024)
+        self.fc3 = nn.Linear(2048, 1024)
         self.relu3 = nn.ReLU()
         self.fc4 = nn.Linear(1024, num_classes)
         self.relu4 = nn.ReLU()
@@ -100,6 +84,26 @@ class ETMLP(nn.Module):
         out = self.fc4(out)
         out = self.relu4(out)
         return out
+
+
+class MLP(nn.Module):
+    def __init__(self, in_features, hidden_features=None,
+                 out_features=None, act_layer=nn.GELU, drop=0):
+        super().__init__()
+        out_features = out_features or in_features
+        hidden_features = hidden_features or in_features
+        self.fc1 = nn.Linear(in_features, hidden_features)
+        self.act = act_layer()
+        self.fc2 = nn.Linear(hidden_features, out_features)
+        self.drop = nn.Dropout(drop)
+
+    def forward(self, x):
+        x = self.fc1(x)
+        x = self.act(x)
+        x = self.drop(x)
+        x = self.fc2(x)
+        x = self.drop(x)
+        return x
 
 
 class ETAttention(nn.Module):
@@ -152,9 +156,9 @@ class Block(nn.Module):
 
 
 class ETTransformer(nn.Module):
-    def __init__(self, sample_height=300, sample_width=3, patch_size=20, in_chans=64,
-                 num_classes=335, embed_dim=15, depth=4, num_heads=5, mlp_ratio=4.,
-                 qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+    def __init__(self, sample_height=300, sample_width=3, patch_size=20, in_chans=256,
+                 num_classes=335, embed_dim=20, depth=6, num_heads=10, mlp_ratio=4.,
+                 qkv_bias=True, qk_scale=None, drop_rate=0.1, attn_drop_rate=0.1,
                  drop_path_rate=0., norm_layer=nn.LayerNorm):
         super().__init__()
         self.num_classes = num_classes
@@ -166,7 +170,7 @@ class ETTransformer(nn.Module):
                                         embed_dim=embed_dim)
         num_patches = self.patch_embed.num_patches
         self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
-        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, embed_dim + 1, embed_dim))
         self.pos_drop = nn.Dropout(p=drop_rate)
         self.blocks = nn.ModuleList([
             Block(dim=embed_dim, num_heads=num_heads,
@@ -196,6 +200,21 @@ class ETTransformer(nn.Module):
         x = self.forward_features(x)
         x = self.head(x)
         return x
+
+
+class EarlyStopping:
+    def __init__(self, tolerance=5, min_delta=0):
+
+        self.tolerance = tolerance
+        self.min_delta = min_delta
+        self.counter = 0
+        self.early_stop = False
+
+    def __call__(self, train_loss, validation_loss):
+        if (validation_loss - train_loss) > self.min_delta:
+            self.counter +=1
+            if self.counter >= self.tolerance:  
+                self.early_stop = True
 
 
 @DeprecationWarning
@@ -241,24 +260,29 @@ def train_pass(model, EPOCHS, loss_fn):
         inputs.requires_grad = True
         labels = labels.to(device)
         inputs = inputs.to(device)
+        # embed = ETPatchEmbed(embed_dim=128).to(device)
+        # inputs = embed(inputs).transpose(1, 2)
+        # print(inputs.shape)
+        # break
         output = model(inputs)
+        print(output)
         # break
         loss = loss_fn(output, labels)
         optimiser.zero_grad()
         loss.backward()
         optimiser.step()
         running_loss += loss.item()
-        if i % 500 == 499:
-            last_loss = running_loss / 499
+        if i % 250 == 249:
+            last_loss = running_loss / 249
             print('  batch {} loss: {}'.format(i + 1, last_loss))
             running_loss = 0.
     return last_loss
 
 
-def train_model(model, EPOCHS, loss_fn):
+def train_model(model, EPOCHS, loss_fn, batch_size=256, num_classes=335):
     loss_progress = []
-    eval_labels = []
-    eval_outputs = []
+    eval_labels = np.zeros((EPOCHS, len(test_dataloader.dataset)))
+    eval_outputs = np.zeros((EPOCHS, len(test_dataloader.dataset), num_classes))
     for epoch in range(EPOCHS):
         print('EPOCH {}:'.format(epoch + 1))
         model.train(True)
@@ -268,87 +292,110 @@ def train_model(model, EPOCHS, loss_fn):
 
         running_vloss = 0.0
         for i, vdata in enumerate(test_dataloader):
+            start_index = i * batch_size
+            end_index = start_index + batch_size
             vlabels = vdata[:, 0, 0]
             vlabels = vlabels.type(torch.LongTensor) - 1
             vinputs = vdata[:, 1:, 1:].float()  # Whole batch, exclude label, exclude timestamps
             vlabels = vlabels.to(device)
             vinputs = vinputs.to(device)
             voutput = model(vinputs)
-            if epoch == EPOCHS - 1:
-                eval_labels.append(vlabels)
-                eval_outputs.append(voutput)
+            if i == len(test_dataloader) - 1:
+                num_samples_last_batch = len(vlabels)
+                end_index = start_index + num_samples_last_batch
+            eval_labels[epoch, start_index:end_index] = vlabels.detach().cpu().numpy()
+            eval_outputs[epoch, start_index:end_index] = voutput.detach().cpu().numpy()
             vloss = loss_fn(voutput, vlabels)
             running_vloss += vloss
         avg_test_loss = running_vloss / (i + 1)
-        loss_progress.append(avg_test_loss)
+        loss_progress.append(avg_test_loss.cpu().detach())
         print('LOSS train {} valid {}'.format(avg_loss, avg_test_loss))
+        
+        early_stopping(avg_loss, avg_test_loss)
+        if early_stopping.early_stop:
+            print("We are at epoch:", i)
+            break
     return eval_labels, eval_outputs, loss_progress
 
 
-def eval_plots(eval_labels, eval_outputs, loss_progress):
+def topk_accuracy(eval_labels, eval_outputs, k=5, plot=False):
+    """
+
+    """
+    topk_accuracy = []
+    for i in range(len(eval_labels)):
+        topk_classes = []
+        for pred in eval_outputs[i]:
+            classes = np.argsort(pred)[-k:]
+            topk_classes.append(classes)
+        correct = 0
+        for j in range(len(eval_labels[i])):
+            if eval_labels[i][j] in topk_classes[j]:
+                correct += 1
+        topk_accuracy.append(correct / len(eval_labels[i]))
+    if plot:
+        plt.plot(topk_accuracy)
+        plt.title(f'Top {k} Accuracy over Epochs')
+        plt.xlabel('Epoch Number')
+        plt.ylabel('Accuracy')
+        plt.savefig('T-50.png')
+        plt.show()
+    return topk_accuracy
+
+
+def eval_plots(eval_labels=None, eval_outputs=None, loss_progress=None, cf=False, loss_plot=False):
     """
     Take the labels and outputs of the model after training and evaluate the model.
     outputs is a list of tensors, each of which is a batch of outputs. 
     It first converts this into a single prediction label with softmax and onehot encoding.
     Plots the progress of the loss function over the epochs.
     """
-    labels = torch.cat(eval_labels)
-    outputs = torch.cat(eval_outputs)
-    loss = np.array([loss.cpu().detach().numpy() for loss in loss_progress])
-    cf_matrix = confusion_matrix(labels.cpu(), outputs.cpu())
-    dim = len(cf_matrix)
-    df_cm = pd.DataFrame(cf_matrix, range(dim), range(dim))
-    plt.figure(figsize=(12, 7))
-    sn.heatmap(df_cm, annot=True)
-    plt.savefig('CF.png')
-    plt.show()
+    if cf:
+        labels = eval_labels[-1].astype(int)
+        outputs = eval_outputs[-1]
+        outputs = torch.softmax(torch.tensor(outputs), dim=1)
+        outputs = torch.argmax(outputs, dim=1).numpy().astype(int)
 
-    plt.plot(loss)
-    plt.xlabel = 'Epoch Number'
-    plt.ylabel = 'Loss'
-    plt.savefig('Loss.png')
-    plt.show()
+        plt.figure(figsize=(20, 20))
+        ax = plt.axes()
+        ax.set_xlabel('Predicted')
+        ax.set_ylabel('Actual')
+        cf_matrix = confusion_matrix(labels, outputs)
+        sn.heatmap(cf_matrix, annot=True, xticklabels=np.unique(outputs), yticklabels= np.unique(labels),
+                fmt='g', cmap='Blues', linewidths=0.5, ax=ax)
+        plt.savefig('T-50-CF.png')
+        plt.show()
+    if loss_plot:
+        loss = np.array(loss_progress)
+        plt.plot(loss)
+        plt.xlabel('Epoch Number')
+        plt.ylabel('Loss')
+        plt.savefig('T-50-Loss.png')
+        plt.show()
 
 
-def top5_accuracy(eval_labels, eval_outputs, k=5):
-    """
+TorchFormer = torch.nn.Transformer(d_model=300, nhead=5, num_encoder_layers=6, num_decoder_layers=6,
+                                   dim_feedforward=2048, dropout=0.1, custom_encoder=None,
+                                   custom_decoder=None, layer_norm_eps=1e-05, batch_first=True,
+                                   norm_first=False, device=None, dtype=None)
 
-    """
-    eval_labels = torch.cat(eval_labels).cpu().numpy()
-    print(len(eval_outputs))
-    eval_outputs = [output.cpu().detach().numpy() for output in eval_outputs]
-    top5_classes = []
-    for pred in eval_outputs:
-        classes = np.argsort(pred)[:, -k:]
-        top5_classes.append(classes)
-    top5_classes = np.concatenate(top5_classes)
-    print(np.shape(eval_labels), np.shape(top5_classes))
-    correct = 0
-    for i in range(len(eval_labels)):
-        if eval_labels[i] in top5_classes[i]:
-            correct += 1
-    return correct / len(eval_labels)
 
 if __name__ == "__main__":
-    model = ETMLP()
-    model2 = ETTransformer()
+    model = TorchFormer
+    early_stopping = EarlyStopping(tolerance=2, min_delta=0.1)
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
-    model2 = model2.to(device)
     loss_fn = nn.CrossEntropyLoss()
-    optimiser = optim.Adam(model.parameters(), lr=0.001, capturable=True)
-    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'DS10'))
+    optimiser = optim.Adam(model.parameters(), lr=0.001, capturable=True, weight_decay=0.0001)
+    folder = os.path.abspath(os.path.join('..', 'DS10'))
     files = list_files(folder)
-    train_dataloader, test_dataloader = return_data_loaders(files, 112, 14, batch_size=128)
-    # train_sample = next(iter(train_dataloader))
-    # for sample in train_sample:
-    #     print(sample[:200])
-    # test_sample = next(iter(test_dataloader))
-    # print(train_sample.shape, test_sample.shape) 
+    train_dataloader, test_dataloader = return_data_loaders(files, 7, 7, batch_size=64)
 
-    EPOCHS = 18
-    eval_labels, eval_outputs, loss_progress = train_model(model, EPOCHS, loss_fn)
-    top5_acc = top5_accuracy(eval_labels, eval_outputs, k=5)
-    print(top5_acc)
+    EPOCHS = 50
+    eval_labels, eval_outputs, loss_progress = train_model(model, EPOCHS, loss_fn, batch_size=64)
+    top5_acc = topk_accuracy(eval_labels, eval_outputs, k=5, plot=True)
+    print(max(top5_acc))
+    eval_plots(eval_labels=eval_labels, eval_outputs=eval_outputs,
+               loss_progress=loss_progress, loss_plot=True, cf=False)
     # print(f"Top-5 accuracy: {top5_acc}")
     # eval_plots(eval_labels, eval_outputs, loss_progress)

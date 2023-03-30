@@ -1,5 +1,6 @@
 import os
-
+import scipy.io as sio
+import numpy as np
 
 def list_files(directory):
     "List all files in the dataset directory."
@@ -19,6 +20,11 @@ def list_files_recursively(path):
             file_list.append(os.path.join(dirpath, filename))
     return file_list
 
+
+def retrieve_semantic_label(file):
+    mat = sio.loadmat(file)
+    mat = np.array(mat['data'])
+    return mat
 
 def split_tensor(tensor, sampling_rate, selection_length):
     pass

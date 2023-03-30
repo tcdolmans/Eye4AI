@@ -1,7 +1,14 @@
 pipeline/tensors
+pipeline/OSIE_imgs
+pipeline/OSIE_tags
 DS10
+eval
+old_convert_sets.py
+old_dataset_constructor.py
 Old DS10
 __pycache__
 *.pyc
 *.pt
 *.png
+*.jpg
+*.mat

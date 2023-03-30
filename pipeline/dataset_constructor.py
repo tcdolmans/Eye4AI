@@ -3,6 +3,7 @@ import sys
 import time
 import torch
 import numpy as np
+from PIL import Image
 from scipy import stats
 from torch.utils.data import DataLoader
 sys.path.insert(1, os.path.join(sys.path[0], '../'))
@@ -10,6 +11,7 @@ from pipeline.utils import list_files # noqa
 
 
 def time_it(func):
+    """"Wrapper for timing of functions."""
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
@@ -20,6 +22,7 @@ def time_it(func):
 
 
 def alert_deprication(func):
+    """"Wrapper that warns for deprication of functions, prints time taken."""
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
@@ -33,12 +36,11 @@ def alert_deprication(func):
 def replace_nans(input_data, need_sanity_check=False):
     """
     Takes some input tensor suitable for PyTorch, then linearly interpolates the Nans away.
-    This works decently well, but can be improved by beign tested for speed.
+    This works decently well, but can be improved by beign tested for speed and finding different
+    interpolation methods.
+    Assumes that the input dimension you care to evaluate by is returned by simply calling len().
+    TODO: Generalise to differently ranked inputs.
     """
-    # Below assumes that the input dimension you care to evaluate by
-    # will be returned by simply calling len().
-    # TODO: Generalise to differently ranked inputs.
-    # @time_it
     def pad_with_interp(data):
         bad_indexes = np.isnan(data)
         good_indexes = np.logical_not(bad_indexes)
@@ -59,14 +61,12 @@ def replace_nans(input_data, need_sanity_check=False):
     return output
 
 
-# @time_it
+@time_it
 def downsample(input_tensor, dsf=10):
     """
-    Takes input_tensor and donsamples the data by down_sampling_frequency(dsf)
-    by return a shortened array which contains the mode for each of the sample windows.
+    Takes input_tensor and donsamples the data by down_sampling_frequency(dsf.
+    Returns a shortened array which contains the mode for each of the sample windows.
     Can be altered to return !mode, e.g.,mean, distribution, etc.
-    Little bit of unpacking and looping, hence the decorator;
-    please remember to switch it off when you are not testing
     """
     ds = []
     for i in range(0, len(input_tensor), dsf):
@@ -75,8 +75,13 @@ def downsample(input_tensor, dsf=10):
     return torch.cat(ds)
 
 
-# @time_it
-def downsample_task_tensor(file, dsf=10):
+@time_it
+def downsample_remove_nans(file, dsf=10):
+    """
+    Takes a file and down samples it by dsf, then removes nans.
+    Little bit of unpacking and looping, hence the decorator;
+    please remember to switch it off when you are not testing.
+    """
     tensor = torch.load(file)
     for i, t in enumerate(tensor):
         labels = t[0].unsqueeze(0)
@@ -90,7 +95,6 @@ def split_tensor(tensor, sampling_rate=100, selection_length=3):
     """
     Splits every input tensor into multiple usable sections.
     Outputs a composite tensor that contains trainable samples.
-    Gets faster as dsf increases in downsample_task_tensor().
     """
     selection_samples = int(sampling_rate * selection_length)
     labels = [data[0] for data in tensor]
@@ -102,8 +106,6 @@ def split_tensor(tensor, sampling_rate=100, selection_length=3):
             _slice = selection[i:end]
             if _slice is not False:
                 _labels = labels[j].unsqueeze(0)
-                # _slice = downsample(_slice)
-                # _slice = replace_nans(_slice)
                 data_tensors.append(torch.cat((_labels, _slice)).unsqueeze(0))
             else:
                 print("Selection {} rejected".format(j))
@@ -129,6 +131,9 @@ def split_ds_tensor(tensor, sampling_rate=100, selection_length=3):
 
 @time_it
 def return_data_loaders(files, train_idxs, test_idxs, batch_size=64):
+    """
+    Takes a list of files, and returns a train and test dataloader.
+    """
     train = files[:train_idxs]  # NOTE: usually is :train_idxs, but this is for testing
     test = files[-test_idxs:]  # NOTE: usually is -test_idxs:, but this is for testing
     train_data_tensors = []
@@ -150,22 +155,22 @@ def return_data_loaders(files, train_idxs, test_idxs, batch_size=64):
     return train_dataloader, test_dataloader
 
 
+def osie_img_to_file(img_path):
+    """
+    Takes an image path and saves a list of all images in RGB as a npy file.
+    Don't use this though, it uses about 20x the memory.
+    """
+    all_images = []
+    for img in img_path:
+        print(img)
+        img = np.asarray(Image.open(img))
+        all_images.append(img.transpose(2, 0, 1))
+    np.save("OSIE_imgs.npy", all_images)
+
+
 if __name__ == "__main__":
     """@Ippa"""
     # NOTE: Please teach me how to do this elegantly:
-    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Pipeline', 'tensors'))
+    folder = os.path.abspath(os.path.join(os.path.dirname(__file__), 'OSIE_imgs'))
     files = list_files(folder)
     # Thank you.
-
-    for file in files:
-        tensor = downsample_task_tensor(file)
-        name_string = "DS10_{}_tensor.pt".format(file[-15:-10])
-        torch.save(tensor, name_string)
-
-    # train_dataloader, test_dataloader = return_data_loaders(files, 125, 2, 64)
-    # # Train test split based on task. Eval acc per task to select interests.
-    # train_sample = next(iter(train_dataloader))
-    # test_sample = next(iter(test_dataloader))
-    # print(train_sample.shape, test_sample.shape)
-    # for sample in train_sample:
-    #     print(sample)
