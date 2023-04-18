@@ -135,7 +135,14 @@ class MultimodalBottleneckTransformer(nn.Module):
     def forward(self, et_data, img_data, sem_data):
         # Initialise the input dictionary and add the embeddings
         x = {}
-        x["et"] = self.adjust_time_dimension(self.et_embed(et_data))
+        # Prepare for inference where we have no et_data
+        if et_data is None:
+            et_data = torch.zeros(config["batch_size"],
+                                  config["et_seq_len"],
+                                  config["et_dim"]).to(self.device)
+            x["et"] = self.adjust_time_dimension(self.et_embed(et_data))
+        else:
+            x["et"] = self.adjust_time_dimension(self.et_embed(et_data))
         x["img"] = self.adjust_time_dimension(self.img_embed(img_data))
         x["sem"] = self.adjust_time_dimension(self.sem_embed(sem_data))
 
@@ -173,6 +180,10 @@ if __name__ == "__main__":
     config = {
         "num_layers": 3,
         "heads": 2,
+        "forward_expansion": 4,
+        "dropout": 0.1,
+        "lr": 3e-4,
+        "batch_size": 64,
         "et_embed_dim": 192,
         "et_patch_size": 15,
         "et_seq_len": 300,
@@ -186,14 +197,11 @@ if __name__ == "__main__":
         "sem_stride": 12,
         "modalities": ["et", "img", "sem"],
         "num_classes": 335,
-        "batch_size": 64,
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "n_bottlenecks": 4,
         "pad_id": 0,
         "mode": "et_reconstruction",
         "fusion_layer": 2,
-        "forward_expansion": 4,
-        "dropout": 0.1,
     }
 
     model = MultimodalBottleneckTransformer(config).to(config["device"])

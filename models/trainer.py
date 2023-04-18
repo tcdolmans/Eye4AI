@@ -67,7 +67,8 @@ def test_model(model, test_dataloader, device, loss_function):
         for et_data, img_data, sem_data, ground_truth in test_dataloader:
             et_data, img_data, sem_data, ground_truth = et_data.to(device),
             img_data.to(device), sem_data.to(device), ground_truth.to(device)
-            reconstructed_et = model(et_data, img_data, sem_data)
+            # Pass None for the et_data since we are reconstructing the et_data
+            reconstructed_et = model(None, img_data, sem_data)
 
             loss = loss_function(reconstructed_et, ground_truth)
             test_loss += loss.item()
@@ -83,8 +84,11 @@ def objective(trial, train_dataloader, test_dataloader, device):
         "forward_expansion": trial.suggest_int("forward_expansion", 2, 8),
         "dropout": trial.suggest_float("dropout", 0.1, 0.5),
         "lr": trial.suggest_loguniform("lr", 1e-5, 1e-3),
+        "batch_size": trial.suggest_int("batch_size", 16, 128),
         "et_embed_dim": 192,
         "et_patch_size": 15,
+        "et_seq_len": 300,
+        "et_dim": 4,
         "et_stride": 1,
         "img_embed_dim": 192,
         "img_patch_size": 25,
