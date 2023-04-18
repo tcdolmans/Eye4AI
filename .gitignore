@@ -1,5 +1,6 @@
 pipeline/tensors
 pipeline/OSIE_imgs
+pipeline/osieImagesR
 pipeline/OSIE_tags
 DS10
 eval
@@ -12,3 +13,7 @@ __pycache__
 *.png
 *.jpg
 *.mat
+*.json
+*.csv
+*.h5
+*txt

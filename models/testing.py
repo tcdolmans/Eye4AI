@@ -1,31 +1,38 @@
-import numpy as np
-import sys
-import os
 import torch
 import torch.nn as nn
-sys.path.insert(1, os.path.join(sys.path[0], '../'))
-from pipeline.utils import list_files # noqa
-from pipeline.dataset_constructor import return_data_loaders # noqa
+from embedders import ETPatchEmbed, ImagePatchEmbed, SemanticEmbedding
 
 
-# folder = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'Pipeline', 'tensors'))
-# files = list_files(folder)
-# train_dataloader, test_dataloader = return_data_loaders(files, 125, 1, batch_size=64)
-# for i, data in enumerate(train_dataloader):
-#     inputs, labels = data
+class ETPatchEmbed(nn.Module):
+    def __init__(self, in_channels=3, embed_dim=768, kernel_size=15, stride=1, padding=7):
+        super().__init__()
+        self.norm = nn.AdaptiveAvgPool1d(embed_dim)
+        self.projection = nn.Conv1d(in_channels=in_channels,
+                                    out_channels=embed_dim,
+                                    kernel_size=kernel_size,
+                                    stride=stride,
+                                    padding=padding)
 
-# conv_layer = nn.Conv1d(in_channels=4, out_channels=, kernel_size=250, stride=250)
-# # output_tensor = conv_layer(inputs.permute(0, 2, 1).float())
-# # print(output_tensor.shape)
-# a = np.array([[1, 1], [2, 2], [3, 3]])
-# a = np.insert(a, 0, 5, axis=0)
-# print(a)
+    def forward(self, x):
+        print(f"Input shape: {x.shape}")
+        x = self.projection(x)
+        print(f"Shape after projection: {x.shape}")
+        x = self.norm(x)
+        print(f"Shape after normalization: {x.shape}")
+        x = x.transpose(1, 2)
+        print(f"Output shape: {x.shape}")
+        return x
 
-print(f"Is CUDA supported by this system?{torch.cuda.is_available()}")
-print(f"CUDA version: {torch.version.cuda}")
-  
-# Storing ID of current CUDA device
-cuda_id = torch.cuda.current_device()
-print(f"ID of current CUDA device{torch.cuda.current_device()}")
-        
-print(f"Name of current CUDA device:{torch.cuda.get_device_name(cuda_id)}")
+
+# Test case
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+et_patch_embed = ETPatchEmbed(in_channels=4, embed_dim=192, kernel_size=15, stride=1, padding=7).to(device)
+img_patch_embed = ImagePatchEmbed(in_channels=3, embed_dim=192, patch_size=25, stride=12, padding=12).to(device)
+sem_patch_embed = SemanticEmbedding(in_channels=12, embed_dim=192, patch_size=25, stride=12, padding=12).to(device)
+et_data = torch.randn(8, 4, 300).to(device)
+img_data = torch.randn(8, 3, 600, 800).to(device)
+sem_data = torch.randn(8, 12, 600, 800).to(device)
+et_embed = et_patch_embed(et_data)
+img_embed = img_patch_embed(img_data)
+sem_embed = sem_patch_embed(sem_data)
+print(et_embed.shape, img_embed.shape, sem_embed.shape)

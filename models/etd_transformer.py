@@ -41,8 +41,9 @@ class ETPatchEmbed(nn.Module):
 
     def forward(self, x):
         out = self.norm(x)
+        print(out.shape)
         out = self.conv_layer(out.permute(0, 2, 1))
-        # print(x.shape)
+        print(out.shape)
         return out
 
 
@@ -387,9 +388,11 @@ if __name__ == "__main__":
     model = model.to(device)
     loss_fn = nn.CrossEntropyLoss()
     optimiser = optim.Adam(model.parameters(), lr=0.001, capturable=True, weight_decay=0.0001)
-    folder = os.path.abspath(os.path.join('..', 'DS10'))
+    folder = os.path.abspath(os.path.join('DS10'))
     files = list_files(folder)
     train_dataloader, test_dataloader = return_data_loaders(files, 7, 7, batch_size=64)
+    # items = next(iter(train_dataloader))
+    # print(items[0, 1:, 1:])
 
     EPOCHS = 50
     eval_labels, eval_outputs, loss_progress = train_model(model, EPOCHS, loss_fn, batch_size=64)
@@ -397,5 +400,5 @@ if __name__ == "__main__":
     print(max(top5_acc))
     eval_plots(eval_labels=eval_labels, eval_outputs=eval_outputs,
                loss_progress=loss_progress, loss_plot=True, cf=False)
-    # print(f"Top-5 accuracy: {top5_acc}")
-    # eval_plots(eval_labels, eval_outputs, loss_progress)
+    print(f"Top-5 accuracy: {top5_acc}")
+    eval_plots(eval_labels, eval_outputs, loss_progress)
