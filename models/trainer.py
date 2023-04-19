@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.optim as optim
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
-from GPTMBT import MultimodalBottleneckTransformer
+from GPMBT import MultimodalBottleneckTransformer
 
 
 class MultimodalDataset(Dataset):
@@ -19,6 +19,9 @@ class MultimodalDataset(Dataset):
         self.et_files = sorted(os.listdir(self.et_folder))
         self.img_files = sorted(os.listdir(self.img_folder))
         self.sem_files = sorted(os.listdir(self.sem_folder))
+        self.transform = transforms.Compose([
+            transforms.Resize((800, 600)),
+            transforms.ToTensor()])
 
     def __getitem__(self, index):
         et_path = os.path.join(self.et_folder, self.et_files[index])
@@ -33,8 +36,7 @@ class MultimodalDataset(Dataset):
 
         sem_path = os.path.join(self.sem_folder, f"{participant_number}.pt")
         sem_data = torch.load(sem_path)
-        if self.transform:
-            sem_data = self.transform(sem_data)
+        sem_data = self.transform(sem_data)
 
         return et_data, img_data, sem_data, participant_number
 
@@ -45,12 +47,12 @@ class MultimodalDataset(Dataset):
 def train_model(model, train_dataloader, device, loss_function, optimizer, num_epochs):
     model.train()
     for epoch in range(num_epochs):
-        for i, (et_data, img_data, sem_data, ground_truth) in enumerate(train_dataloader):
-            et_data, img_data, sem_data, ground_truth = et_data.to(device),
-            img_data.to(device), sem_data.to(device), ground_truth.to(device)
+        for i, (et_data, img_data, sem_data, p_num) in enumerate(train_dataloader):
+            et_data, img_data, sem_data, p_num = et_data.to(device),
+            img_data.to(device), sem_data.to(device), p_num.to(device)
             reconstructed_et = model(et_data, img_data, sem_data)
 
-            loss = loss_function(reconstructed_et, ground_truth)
+            loss = loss_function(reconstructed_et, p_num)
 
             optimizer.zero_grad()
             loss.backward()
@@ -98,7 +100,7 @@ def objective(trial, train_dataloader, test_dataloader, device):
         "sem_stride": 12,
         "modalities": ["et", "img", "sem"],
         "num_classes": 335,
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
+        "device": device,
         "n_bottlenecks": 4,
         "pad_id": 0,
         "mode": "et_reconstruction",
@@ -140,17 +142,9 @@ if __name__ == "__main__":
     test_img_folder = "path/to/test_img_folder"
     test_sem_folder = "path/to/test_sem_folder"
 
-    # Define the semantic transformation
-    transform = transforms.Compose([
-        transforms.Resize((800, 600)),
-        transforms.ToTensor()
-    ])
-
     # Prepare your data and DataLoader
-    train_dataset = MultimodalDataset(train_et_folder, train_img_folder, train_sem_folder,
-                                      transform=transform)
-    test_dataset = MultimodalDataset(test_et_folder, test_img_folder, test_sem_folder,
-                                     transform=transform)
+    train_dataset = MultimodalDataset(train_et_folder, train_img_folder, train_sem_folder)
+    test_dataset = MultimodalDataset(test_et_folder, test_img_folder, test_sem_folder)
 
     train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
     test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
