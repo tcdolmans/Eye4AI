@@ -63,7 +63,6 @@ class MultimodalBottleneckTransformer(nn.Module):
             )
 
         self.classification_head = nn.Linear(self.d_model, config["num_classes"])
-        self.prediction_head = nn.Linear(self.d_model, config["et_embed_dim"])
         self.et_reconstruction_head = nn.Linear(
             config["et_embed_dim"] * (config["et_embed_dim"] + 1),
             config["et_seq_len"] * config["et_dim"])
@@ -158,12 +157,6 @@ class MultimodalBottleneckTransformer(nn.Module):
         if self.mode == "classification":
             out = self.classification_head(out[:, 0, :])
             return out
-        elif self.mode == "prediction":
-            out = self.prediction_head(out)  # shape (batch_size, et_embed_dim),
-            # Extract only the ET embeddings from the output
-            out = out[:, :, :self.et_embed.embed_dim]
-            out = torch.mean(out, dim=1)  # NOTE:May not have to mean it here
-            return out
         elif self.mode == "et_reconstruction":
             input_flat = out.view(config["batch_size"], -1)
             out_flat = self.et_reconstruction_head(input_flat)
@@ -171,7 +164,7 @@ class MultimodalBottleneckTransformer(nn.Module):
             return et_reconstructed
         # TODO: Add the other modes like image prediction or semantic prediction.
         else:
-            raise ValueError("Invalid mode. Must be either 'classification' or 'prediction'.")
+            raise ValueError("Mode must be either 'classification' or 'et_reconstruction'.")
 
 
 if __name__ == "__main__":
@@ -200,7 +193,7 @@ if __name__ == "__main__":
         "device": "cuda" if torch.cuda.is_available() else "cpu",
         "n_bottlenecks": 4,
         "pad_id": 0,
-        "mode": "et_reconstruction",
+        "mode": "classification",
         "fusion_layer": 2,
     }
 
