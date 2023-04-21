@@ -1,27 +1,19 @@
 import os
 import torch
 import optuna
-from PIL import Image
 import torch.nn as nn
 import torch.optim as optim
-import torchvision.transforms as transforms
+from utils import load_img_sem_data
 from torch.utils.data import Dataset, DataLoader
 from GPMBT import MultimodalBottleneckTransformer
 
 
 class MultimodalDataset(Dataset):
-    def __init__(self, et_folder, img_folder, sem_folder, transform=None):
+    def __init__(self, et_folder, img_tensor, sem_tensor):
         self.et_folder = et_folder
-        self.img_folder = img_folder
-        self.sem_folder = sem_folder
-        self.transform = transform
-
         self.et_files = sorted(os.listdir(self.et_folder))
-        self.img_files = sorted(os.listdir(self.img_folder))
-        self.sem_files = sorted(os.listdir(self.sem_folder))
-        self.transform = transforms.Compose([
-            transforms.Resize((800, 600)),
-            transforms.ToTensor()])
+        self.img_tensor = img_tensor
+        self.sem_tensor = sem_tensor
 
     def __getitem__(self, index):
         et_path = os.path.join(self.et_folder, self.et_files[index])
@@ -29,30 +21,27 @@ class MultimodalDataset(Dataset):
 
         # Extract the participant number and remove the first row
         participant_number = et_data[0, 0].item()
+        stimulus_number = None
         et_data = et_data[1:]
 
-        img_path = os.path.join(self.img_folder, f"{participant_number}.jpg")
-        img_data = Image.open(img_path)
+        img_data = self.img_tensor[stimulus_number]
+        sem_data = self.sem_tensor[stimulus_number]
 
-        sem_path = os.path.join(self.sem_folder, f"{participant_number}.pt")
-        sem_data = torch.load(sem_path)
-        sem_data = self.transform(sem_data)
-
-        return et_data, img_data, sem_data, participant_number
-
-    def __len__(self):
-        return len(self.et_files)
+        return et_data, img_data, sem_data, participant_number, stimulus_number
 
 
 def train_model(model, train_dataloader, device, loss_function, optimizer, num_epochs):
     model.train()
     for epoch in range(num_epochs):
-        for i, (et_data, img_data, sem_data, p_num) in enumerate(train_dataloader):
-            et_data, img_data, sem_data, p_num = et_data.to(device),
-            img_data.to(device), sem_data.to(device), p_num.to(device)
-            reconstructed_et = model(et_data, img_data, sem_data)
+        for i, (et_data, img_data, sem_data, p_num, s_num) in enumerate(train_dataloader):
+            et_data, img_data, sem_data, p_num, s_num = et_data.to(device),
+            img_data.to(device), sem_data.to(device), p_num.to(device), s_num.to(device)
+            out = model(et_data, img_data, sem_data)
 
-            loss = loss_function(reconstructed_et, p_num)
+            if model.mode == "et_reconstruction":
+                loss = loss_function(out, et_data)
+            elif model.mode == "classification":
+                loss = loss_function(out, p_num)
 
             optimizer.zero_grad()
             loss.backward()
@@ -66,27 +55,33 @@ def test_model(model, test_dataloader, device, loss_function):
     model.eval()
     test_loss = 0
     with torch.no_grad():
-        for et_data, img_data, sem_data, ground_truth in test_dataloader:
-            et_data, img_data, sem_data, ground_truth = et_data.to(device),
-            img_data.to(device), sem_data.to(device), ground_truth.to(device)
+        for et_data, img_data, sem_data, p_num, s_num in test_dataloader:
+            et_data, img_data, sem_data, p_num, s_num = et_data.to(device),
+            img_data.to(device), sem_data.to(device), p_num.to(device), s_num.to(device)
             # Pass None for the et_data since we are reconstructing the et_data
-            reconstructed_et = model(None, img_data, sem_data)
-
-            loss = loss_function(reconstructed_et, ground_truth)
+            if model.mode == "et_reconstruction":
+                reconstructed_et = model(None, img_data, sem_data)
+                loss = loss_function(reconstructed_et, et_data)
+            elif model.mode == "classification":
+                pred_p_num = model(et_data, img_data, sem_data)
+                loss = loss_function(pred_p_num, p_num)
             test_loss += loss.item()
 
     test_loss = test_loss / len(test_dataloader)
     return test_loss
 
 
-def objective(trial, train_dataloader, test_dataloader, device):
+def objective(trial, train_dataset, test_dataset, device, mode):
     config = {
         "num_layers": trial.suggest_int("num_layers", 2, 6),
-        "heads": trial.suggest_int("heads", 1, 4),
-        "forward_expansion": trial.suggest_int("forward_expansion", 2, 8),
-        "dropout": trial.suggest_float("dropout", 0.1, 0.5),
-        "lr": trial.suggest_loguniform("lr", 1e-5, 1e-3),
-        "batch_size": trial.suggest_int("batch_size", 16, 128),
+        "heads": trial.suggest_int("heads", 4, 16, step=4),
+        "forward_expansion": trial.suggest_int("forward_expansion", 2, 8, step=2),
+        "dropout": trial.suggest_float("dropout", 0.1, 0.5, step=0.1),
+        "lr": trial.suggest_loguniform("lr", 1e-5, 1e-3, step=5e-5),
+        "batch_size": trial.suggest_int("batch_size", 64, 256, step=64),
+        "n_bottlenecks": trial.suggest_int("n_bottlenecks", 1, 4),
+        "fusion_layer": trial.suggest_int("fusion_layer", 2, "num_layers"),
+        "num_epochs": trial.suggest_int("num_epochs", 10, 50, step=10),
         "et_embed_dim": 192,
         "et_patch_size": 15,
         "et_seq_len": 300,
@@ -101,27 +96,31 @@ def objective(trial, train_dataloader, test_dataloader, device):
         "modalities": ["et", "img", "sem"],
         "num_classes": 335,
         "device": device,
-        "n_bottlenecks": 4,
+        "mode": mode,
         "pad_id": 0,
-        "mode": "et_reconstruction",
-        "fusion_layer": 2,
     }
 
     model = MultimodalBottleneckTransformer(..., **config, mode="et_reconstruction").to(device)
-    loss_function = nn.MSELoss()
+    if config["mode"] == "et_reconstruction":
+        loss_function = nn.MSELoss()
+    elif config["mode"] == "classification":
+        loss_function = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=config["lr"])
 
-    train_model(model, train_dataloader, device, loss_function, optimizer, num_epochs=10)
-    test_loss = test_model(model, test_dataloader, device, loss_function)
+    train_dataloader = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=config["batch_size"], shuffle=False)
 
+    train_model(model, train_dataloader, device, loss_function, optimizer, config["num_epochs"])
+    test_loss = test_model(model, test_dataloader, device, loss_function)
     return test_loss
 
 
-def hyperparameter_optimization(train_dataloader, test_dataloader, device, n_trials=50):
+def hyperparameter_optimization(train_dataset, test_dataset, device, mode, n_trials):
     study = optuna.create_study(direction="minimize")
     study.optimize(lambda trial: objective(trial,
-                                           train_dataloader,
-                                           test_dataloader,
+                                           train_dataset,
+                                           test_dataset,
+                                           mode,
                                            device), n_trials=n_trials)
     return study.best_params
 
@@ -133,21 +132,16 @@ if __name__ == "__main__":
     on your specific dataset organization.
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    mode = "et_reconstruction"
 
     # Specify the paths to your data folders
     train_et_folder = "path/to/train_et_folder"
-    train_img_folder = "path/to/train_img_folder"
-    train_sem_folder = "path/to/train_sem_folder"
     test_et_folder = "path/to/test_et_folder"
-    test_img_folder = "path/to/test_img_folder"
-    test_sem_folder = "path/to/test_sem_folder"
+    img_tensor, sem_tensor = load_img_sem_data()
 
-    # Prepare your data and DataLoader
-    train_dataset = MultimodalDataset(train_et_folder, train_img_folder, train_sem_folder)
-    test_dataset = MultimodalDataset(test_et_folder, test_img_folder, test_sem_folder)
-
-    train_dataloader = DataLoader(train_dataset, batch_size=8, shuffle=True)
-    test_dataloader = DataLoader(test_dataset, batch_size=8, shuffle=False)
+    # Prepare your data and Dataset
+    train_dataset = MultimodalDataset(train_et_folder, img_tensor, sem_tensor)
+    test_dataset = MultimodalDataset(test_et_folder, img_tensor, sem_tensor)
 
     # Hyperparameter optimization
-    best_params = hyperparameter_optimization(train_dataloader, test_dataloader, device)
+    best_params = hyperparameter_optimization(train_dataset, test_dataset, device, mode, n_trials=50)
