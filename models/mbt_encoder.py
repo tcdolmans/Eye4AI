@@ -18,7 +18,7 @@ class SelfAttention(nn.Module):
         self.query = nn.Linear(self.head_dim, self.head_dim, bias=False)
         self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
 
-    def adjust_mask_size(self, mask, target_size, padding_value: int) -> torch.Tensor:
+    def adjust_mask_size(self, mask, target_size, num_channels, padding_value) -> torch.Tensor:
         target_rows, target_cols = target_size
         if mask.size(1) < target_rows:
             padding_rows = torch.full((mask.size(0), target_rows - mask.size(1), mask.size(2)),
@@ -29,7 +29,7 @@ class SelfAttention(nn.Module):
                                       padding_value, dtype=mask.dtype, device=mask.device)
             mask = torch.cat((mask, padding_cols), dim=2)
         mask = mask.unsqueeze(1)
-        mask = mask.expand(-1, 2, -1, -1)
+        mask = mask.expand(-1, num_channels, -1, -1)
         return mask
 
     def forward(self, values, keys, query, mask):
@@ -52,7 +52,7 @@ class SelfAttention(nn.Module):
         # Energy shape: (N, heads, query_len, key_len)
 
         if mask is not None:
-            mask = self.adjust_mask_size(mask, energy.shape[-2:], mask[-1, -1, -1])
+            mask = self.adjust_mask_size(mask, energy.shape[-2:], energy.shape[1], mask[-1, -1, -1])
             energy = energy.masked_fill(mask == 0, float("-1e20"))
 
         attention = torch.softmax(energy / (self.embed_size ** (1/2)), dim=3)
