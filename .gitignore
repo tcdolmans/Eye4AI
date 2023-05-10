@@ -1,13 +1,18 @@
+__pycache__
+pipeline/__pycache__
 pipeline/tensors
 pipeline/OSIE_imgs
+pipeline/dataReader.py
 pipeline/osieImagesR
 pipeline/OSIE_tags
+pipeline/osieData
+pipeline/osie_extraction.ipynb
+models/figures
 DS10
 eval
 old_convert_sets.py
 old_dataset_constructor.py
 Old DS10
-__pycache__
 *.pyc
 *.pt
 *.png

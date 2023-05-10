@@ -7,28 +7,28 @@ from scipy import stats
 import time
 
 
-def replace_nans(input_tensor):
+def replace_nans(input_tensor, threshold=0.85):
 
     def pad(data):
         bad_indexes = np.isnan(data)
         good_indexes = np.logical_not(bad_indexes)
         good_data = data[good_indexes]
         if len(good_data) == 0:
+            # print("Sample Rejected, no good data")
             return False
-        elif len(good_data) / len(data) < 0.85:
-            # print("Sample Rejected")
+        elif len(good_data) / len(data) < threshold:
+            # print("Sample Rejected: ", len(good_data) / len(data))
             return False
         interpolated = np.interp(bad_indexes.nonzero()[0], good_indexes.nonzero()[0], good_data)
         data[bad_indexes] = interpolated
         return data
     output = torch.tensor(np.apply_along_axis(pad, 0, input_tensor))
-    # print(output)
     return output
 
 
 def downsample(input_tensor, dsf=10):
     """
-    Takes input_tensor and donsamples the data by dsf by return a shorteend array
+    Takes input_tensor and downsamples the data by dsf by return a shortened array
     that contains the mode for each of the sample windows.
     """
     ds_t = []

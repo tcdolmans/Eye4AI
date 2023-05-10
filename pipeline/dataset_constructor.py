@@ -21,7 +21,7 @@ def time_it(func):
     return wrapper
 
 
-def alert_deprication(func):
+def alert_deprecation(func):
     """"Wrapper that warns for deprication of functions, prints time taken."""
     def wrapper(*args, **kwargs):
         start = time.time()
@@ -112,7 +112,7 @@ def split_tensor(tensor, sampling_rate=100, selection_length=3):
     return torch.cat(data_tensors)
 
 
-@alert_deprication
+@alert_deprecation
 def split_ds_tensor(tensor, sampling_rate=100, selection_length=3):
     selection_samples = int(sampling_rate * selection_length)
     label = tensor[0].unsqueeze(0)
