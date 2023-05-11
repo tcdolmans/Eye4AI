@@ -12,7 +12,7 @@ import torch
 import optuna
 import torch.nn as nn
 import torch.optim as optim
-# from torchsummary import summary
+from torchsummary import summary
 from torch.utils.data import Dataset, DataLoader
 from GPMBT import MultimodalBottleneckTransformer
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -20,6 +20,23 @@ from pipeline.utils import load_img_sem_data # noqa
 
 
 class MultimodalDataset(Dataset):
+    """
+    Dataset class for the multimodal data, in this case:
+    - Eye-tracking data
+    - Images
+    - Semantic labels
+    Inputs:
+    - et_folder: folder containing the eye-tracking data
+    - img_tensor: tensor containing the images
+    - sem_tensor: tensor containing the semantic labels
+    Outputs (per item):
+    - et_data: eye-tracking data
+    - img_data: image data
+    - sem_data: semantic label data
+    - p_num: participant number
+    - s_num: stimulus number
+    TODO: Change p_num to also include session number
+    """
     def __init__(self, et_folder, img_tensor, sem_tensor):
         self.et_folder = et_folder
         self.et_files = sorted(os.listdir(self.et_folder))
@@ -48,6 +65,22 @@ class MultimodalDataset(Dataset):
 
 
 def train_model(model, train_dataloader, device, loss_function, optimizer, num_epochs):
+    """
+    Main training loop for the model.
+    Inputs:
+    - model: model to train
+    - train_dataloader: dataloader containing the training data. Assumes the presence of:
+        - et_data: eye-tracking data
+        - img_data: image data
+        - sem_data: semantic label data
+        - p_num: participant number
+        - s_num: stimulus number
+        - TODO: Generalise to any number of inputs so it can be used in different settings
+    - device: device to train on, e.g. cuda
+    - loss_function: loss function to use, varies per model "mode"
+    - optimizer: optimizer to use, e.g. Adam
+    - num_epochs: number of epochs to train for
+    """
     model.train()
     for epoch in range(num_epochs):
         for i, (et_data, img_data, sem_data, p_num, s_num) in enumerate(train_dataloader):
@@ -74,10 +107,23 @@ def train_model(model, train_dataloader, device, loss_function, optimizer, num_e
             scheduler.step(loss)
 
             if i % 10 == 0:
-                print(f"Epoch [{epoch+1}/{num_epochs}], Step [{i}/{len(train_dataloader)}], Loss: {loss.item()}")  # noqa: E501
+                print(f"Epoch [{epoch+1}/{num_epochs}], Loss: {loss.item()}")
 
 
 def test_model(model, test_dataloader, device, loss_function):
+    """
+    Main testing loop for the model.
+    Inputs:
+    - model: model to test
+    - test_dataloader: dataloader containing the testing data. Assumes the presence of:
+        - et_data: eye-tracking data
+        - img_data: image data
+        - sem_data: semantic label data
+        - p_num: participant number
+        - s_num: stimulus number
+    - device: device to test on, e.g. cuda
+    - loss_function: loss function to use, varies per model "mode"
+    """
     model.eval()
     test_loss = 0
     snippet_length = 30
@@ -104,7 +150,18 @@ def test_model(model, test_dataloader, device, loss_function):
     return test_loss
 
 
-def objective(trial, train_dataset, test_dataset, device, mode):
+def objective(trial, train_dataset, test_dataset, device, mode, summarise=False):
+    """
+    Main objective function for the Optuna hyperparameter search.
+    Inputs:
+    - trial: Optuna trial object
+    - train_dataset: training dataset
+    - test_dataset: testing dataset
+    - device: device to train on, e.g. cuda
+    - mode: mode of the model, et_reconstruction or classification
+    Outputs:
+    - test_loss: test loss of the model, used by Optuna to find the best hyperparameters
+    """
     # num_layers = trial.suggest_int("num_layers", 2, 8)
     if mode == "et_reconstruction":
         p_num_provided = True
@@ -142,9 +199,12 @@ def objective(trial, train_dataset, test_dataset, device, mode):
     }
 
     model = MultimodalBottleneckTransformer(config).to(config["device"])
-    # summary(model, input_size=(config["batch_size"], 4, 300,
-    #                            config["batch_size"], 3, 600, 800,
-    #                            config["batch_size"], 12, 600, 800))
+
+    if summarise:
+        summary(model, input_size=(config["batch_size"], 4, 300,
+                                   config["batch_size"], 3, 600, 800,
+                                   config["batch_size"], 12, 600, 800))
+
     if config["mode"] == "et_reconstruction":
         loss_function = nn.MSELoss()
     elif config["mode"] == "classification":
@@ -160,6 +220,17 @@ def objective(trial, train_dataset, test_dataset, device, mode):
 
 
 def hyperparameter_optimization(train_dataset, test_dataset, device, mode, n_trials):
+    """
+    Hyperparameter optimization using Optuna.
+    Inputs:
+    - train_dataset: training dataset
+    - test_dataset: testing dataset
+    - device: device to train on, e.g. cuda
+    - mode: mode of the model, et_reconstruction or classification
+    - n_trials: number of trials to run the hyperparameter search
+    Outputs:
+    - study.best_params: best hyperparameters found by Optuna
+    """
     study = optuna.create_study(direction="minimize")
     study.optimize(lambda trial: objective(trial,
                                            train_dataset,

@@ -10,7 +10,9 @@ import torch.nn as nn
 
 
 class SelfAttention(nn.Module):
-    # Based on the implementation from Aladdin Persson: youtube.com/watch?v=U0s0f995w14
+    """
+    Based on the implementation from Aladdin Persson: youtube.com/watch?v=U0s0f995w14
+    """
     def __init__(self, embed_size, heads, device):
         super(SelfAttention, self).__init__()
         self.embed_size = embed_size
@@ -26,6 +28,9 @@ class SelfAttention(nn.Module):
         self.fc_out = nn.Linear(heads * self.head_dim, embed_size)
 
     def adjust_mask_size(self, mask, target_size, num_channels, padding_value) -> torch.Tensor:
+        """
+        Adjusts the size of the mask to the target size if they are not equal.
+        """
         target_rows, target_cols = target_size
         if mask.size(1) < target_rows:
             padding_rows = torch.full((mask.size(0), target_rows - mask.size(1), mask.size(2)),
@@ -73,6 +78,9 @@ class SelfAttention(nn.Module):
 
 
 class TransformerBlock(nn.Module):
+    """
+    Standard transformer block with the above defined self-attention.
+    """
     def __init__(self, embed_size, heads, dropout, forward_expansion, device):
         super(TransformerBlock, self).__init__()
         self.device = device
@@ -101,6 +109,11 @@ class TransformerBlock(nn.Module):
 
 
 class Encoder(nn.Module):
+    """
+    Custom encoder module that stacks the transformer blocks and uses bottleneck fusion.
+    Takes in a dictionary of modalities and their embeddings and generates blocks for each modality.
+    Bottleneck tokens are added to the embeddings of each modality.
+    """
     def __init__(
         self,
         embed_size,
