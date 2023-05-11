@@ -1,3 +1,10 @@
+"""
+ * @author [Tenzing Dolmans]
+ * @email [t.c.dolmans@gmail.com]
+ * @create date 2023-05-11 12:04:49
+ * @modify date 2023-05-11 12:04:49
+ * @desc [description]
+"""
 import torch
 import torch.nn as nn
 

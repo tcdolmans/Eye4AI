@@ -1,3 +1,10 @@
+"""
+ * @author [Tenzing Dolmans]
+ * @email [t.c.dolmans@gmail.com]
+ * @create date 2023-05-11 12:03:56
+ * @modify date 2023-05-11 12:03:56
+ * @desc [description]
+"""
 import os
 import re
 import sys
@@ -5,7 +12,7 @@ import torch
 import optuna
 import torch.nn as nn
 import torch.optim as optim
-from torchsummary import summary
+# from torchsummary import summary
 from torch.utils.data import Dataset, DataLoader
 from GPMBT import MultimodalBottleneckTransformer
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

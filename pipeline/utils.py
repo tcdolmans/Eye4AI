@@ -1,6 +1,14 @@
+"""
+ * @author [Tenzing Dolmans]
+ * @email [t.c.dolmans@gmail.com]
+ * @create date 2023-05-11 12:08:55
+ * @modify date 2023-05-11 12:08:55
+ * @desc [description]
+"""
 import os
 import scipy.io as sio
 import numpy as np
+
 
 def list_files(directory):
     "List all files in the dataset directory."
@@ -25,9 +33,6 @@ def retrieve_semantic_label(file):
     mat = sio.loadmat(file)
     mat = np.array(mat['data'])
     return mat
-
-def split_tensor(tensor, sampling_rate, selection_length):
-    pass
 
 
 if __name__ == "__main__":
