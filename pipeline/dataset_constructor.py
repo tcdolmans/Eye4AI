@@ -29,12 +29,12 @@ def time_it(func):
 
 
 def alert_deprecation(func):
-    """"Wrapper that warns for deprication of functions, prints time taken."""
+    """"Wrapper that warns for deprecation of functions, prints time taken."""
     def wrapper(*args, **kwargs):
         start = time.time()
         result = func(*args, **kwargs)
         end = time.time()
-        print(f"{func.__name__} depricated and took {(end - start):.6f} seconds")
+        print(f"{func.__name__} deprecated and took {(end - start):.6f} seconds")
         return result
     return wrapper
 
@@ -43,7 +43,7 @@ def alert_deprecation(func):
 def replace_nans(input_data, need_sanity_check=False):
     """
     Takes some input tensor suitable for PyTorch, then linearly interpolates the Nans away.
-    This works decently well, but can be improved by beign tested for speed and finding different
+    This works decently well, but can be improved by being tested for speed and finding different
     interpolation methods.
     Assumes that the input dimension you care to evaluate by is returned by simply calling len().
     TODO: Generalise to differently ranked inputs.
@@ -57,7 +57,7 @@ def replace_nans(input_data, need_sanity_check=False):
         elif len(good_data) / len(data) < 0.85:
             #  The sample is rejected because it did not met the threshold of .85.
             return False
-        # Craft linearly interpolated data over the seleceted data.
+        # Craft linearly interpolated data over the selected data.
         interpolated = np.interp(bad_indexes.nonzero()[0], good_indexes.nonzero()[0], good_data)
         data[bad_indexes] = interpolated
         return data
