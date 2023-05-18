@@ -25,6 +25,7 @@ class ETPatchEmbed(nn.Module):
                                     padding=padding)
 
     def forward(self, x):
+        # x = x["et"]
         x = x.transpose(1, 2)
         x = self.projection(x)
         x = self.norm(x)

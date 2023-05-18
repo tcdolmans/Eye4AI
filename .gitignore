@@ -13,6 +13,7 @@ eval
 old_convert_sets.py
 old_dataset_constructor.py
 Old DS10
+*pth
 *.pyc
 *.pt
 *.png

@@ -31,30 +31,31 @@ class MultimodalBottleneckTransformer(nn.Module):
             if modality == "et":
                 self.embedders["et"] = ETPatchEmbed(
                     in_channels=in_channels,
-                    embed_dim=config["et_embed_dim"],
+                    embed_dim=config["embed_dim"],
                     kernel_size=config["et_patch_size"],
                     stride=config["et_stride"]
                     )
             elif modality == "img":
                 self.embedders["img"] = ImagePatchEmbed(
                     in_channels=3,
-                    embed_dim=config["img_embed_dim"],
+                    embed_dim=config["embed_dim"],
                     patch_size=config["img_patch_size"],
                     stride=config["img_stride"],
                     )
             elif modality == "sem":
                 self.embedders["sem"] = SemanticEmbedding(
                     in_channels=12,
-                    embed_dim=config["sem_embed_dim"],
+                    embed_dim=config["embed_dim"],
                     patch_size=config["sem_patch_size"],
                     stride=config["sem_stride"],
                     )
 
-        self.d_model = config["et_embed_dim"]
+        self.d_model = config["embed_dim"]
         self.mode = config["mode"]
         self.n_bottlenecks = config["n_bottlenecks"]
         self.pad_id = config["pad_id"]
-        self.p_num_embed = nn.Embedding(config["num_classes"], config["p_num_embed_dim"])
+        self.p_num_embed = nn.Embedding(config["num_classes"],
+                                        config["p_num_embed_dim"]).to(self.device)
         self.start_tokens = nn.ParameterDict({
             modality: nn.Parameter(torch.randn(1, 1, self.d_model))
             for modality in self.modalities})
@@ -63,7 +64,7 @@ class MultimodalBottleneckTransformer(nn.Module):
             for modality in self.modalities})
 
         encoder = Encoder(
-            embed_size=config["et_embed_dim"],
+            embed_size=config["embed_dim"],
             num_layers=config["num_layers"],
             heads=config["heads"],
             fusion_layer=config["fusion_layer"],
@@ -83,12 +84,13 @@ class MultimodalBottleneckTransformer(nn.Module):
 
         self.classification_head = nn.Linear(self.d_model, config["num_classes"])
         self.et_reconstruction_head = nn.Linear(
-            config["et_embed_dim"] * (config["et_embed_dim"] + 1),
+            config["embed_dim"] * (config["embed_dim"] + 1),
             config["et_seq_len"] * config["et_dim"])
 
-    def adjust_time_dimension(self, embedding, target_time_steps=192):
+    def adjust_time_dimension(self, embedding):
         """Adjust the time dimension of the embedding to match the target time steps."""
         current_steps, feature_dim = embedding.shape[-2:]
+        target_time_steps = self.d_model
         if current_steps == target_time_steps:
             return embedding
         else:
@@ -145,22 +147,20 @@ class MultimodalBottleneckTransformer(nn.Module):
                                      mean=0, std=0.02).to(self.device)
         return bottleneck
 
-    def forward(self, et_data, img_data, sem_data, p_num=None):
-        # Initialise the input dictionary and add the embeddings
+    def forward(self, data_dict, p_num=None):
         x = {}
-        # Prepare for inference where we have no et_data
         if self.p_num_provided:
             p_num_embed = self.p_num_embed(p_num)
-            p_num_embed = p_num_embed.unsqueeze(1).expand(-1, et_data.size(1), -1)
-            et_data = torch.cat((et_data, p_num_embed), dim=-1)
+            p_num_embed = p_num_embed.unsqueeze(1).expand(-1, data_dict["et"].size(1), -1)
+            data_dict["et"] = torch.cat((data_dict["et"], p_num_embed), dim=-1)
 
         for modality in self.modalities:
-            if modality == "et":
-                x["et"] = self.adjust_time_dimension(self.embedders["et"](et_data))
-            elif modality == "img":
-                x["img"] = self.adjust_time_dimension(self.embedders["img"](img_data))
-            elif modality == "sem":
-                x["sem"] = self.adjust_time_dimension(self.embedders["sem"](sem_data))
+            self.embedders[modality] = self.embedders[modality].to(self.device)
+            if modality in data_dict:
+                x[modality] = self.adjust_time_dimension(
+                    self.embedders[modality](data_dict[modality]))
+            else:
+                print(f"Data for modality {modality} not has unknown use.")
 
         src, tgt = self.create_src_tgt_sequences(x)
         src_mask = self.make_src_mask(src)
@@ -168,7 +168,7 @@ class MultimodalBottleneckTransformer(nn.Module):
         bottleneck = self.init_bottleneck(src, "et")
 
         out_src = self.transformer.encoder(src, bottleneck, src_key_padding_mask=src_mask["et"])
-        out_src_et = out_src[:, :, :self.config["et_embed_dim"]]
+        out_src_et = out_src[:, :, :self.config["embed_dim"]]
         out = self.transformer.decoder(tgt, out_src_et, tgt_key_padding_mask=tgt_mask)
 
         if self.mode == "classification":
@@ -205,7 +205,7 @@ if __name__ == "__main__":
         "fusion_layer": 2,  # trial.suggest_int("fusion_layer", 2, num_layers),
         "num_epochs": 50,  # trial.suggest_int("num_epochs", 50, 200, step=50),
         "L2": 1e-4,  # trial.suggest_float("L2", 1e-5, 1e-3),
-        "p_num_embed_dim": 1,
+        "p_num_embed_dim": 4,
         "et_embed_dim": 192,
         "et_patch_size": 15,
         "et_seq_len": 300,
@@ -218,7 +218,7 @@ if __name__ == "__main__":
         "sem_patch_size": 25,
         "sem_stride": 12,
         "modalities": ["et", "img", "sem"],
-        "num_classes": 10,
+        "num_classes": 335,
         "device": device,
         "mode": mode,
         "p_num_provided": p_num_provided,
@@ -228,6 +228,7 @@ if __name__ == "__main__":
     model = MultimodalBottleneckTransformer(config).to(config["device"])
 
     # Initialize input data
+    # NOTE: Deprecated: data is now a dictionary with keys "et", "img", "sem"
     et_data = torch.randn(config["batch_size"], 4, 300).to(config["device"])
     img_data = torch.randn(config["batch_size"], 3, 600, 800).to(config["device"])
     sem_data = torch.randn(config["batch_size"], 12, 600, 800).to(config["device"])

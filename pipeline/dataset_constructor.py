@@ -147,12 +147,10 @@ def return_data_loaders(files, train_idxs, test_idxs, batch_size=64):
     test_data_tensors = []
     print("Loading training data")
     for file in train:
-        # print(file[-15:-10])
         split_tensors = split_tensor(torch.load(file))
         train_data_tensors.append(split_tensors)
     print("Loading testing data")
     for file in test:
-        # print(file[-15:-10])
         split_tensors = split_tensor(torch.load(file))
         test_data_tensors.append(split_tensors)
     train_dataloader = DataLoader(torch.cat(train_data_tensors),

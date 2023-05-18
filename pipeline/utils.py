@@ -12,6 +12,7 @@ import scipy
 import numpy as np
 from PIL import Image
 import scipy.io as sio
+import matplotlib.pyplot as plt
 
 
 def list_files(directory):
@@ -74,6 +75,54 @@ def load_img_sem_data(img_folder='OSIE_imgs',
     sem_tensor_all = torch.stack(sem_tensors, dim=0)
 
     return img_tensor_all, sem_tensor_all
+
+
+def split_tensor(tensor, sampling_rate=100, selection_length=3):
+    """
+    Splits every input tensor into multiple usable sections.
+    Outputs a composite tensor that contains trainable samples.
+    """
+    selection_samples = int(sampling_rate * selection_length)
+    labels = [data[0] for data in tensor]
+    selections = [data[1:, :] for data in tensor]
+    data_tensors = []
+    for j, selection in enumerate(selections):
+        for i in range(0, len(selection) - selection_samples, selection_samples):
+            end = i + selection_samples
+            _slice = selection[i:end]
+            if _slice is not False:
+                _labels = labels[j].unsqueeze(0)
+                data_tensors.append(torch.cat((_labels, _slice)).unsqueeze(0))
+            else:
+                print("Selection {} rejected".format(j))
+    return torch.cat(data_tensors)
+
+
+def topk_accuracy(true_labels, pred_labels, k=5):
+    """
+    Calculate the top k accuracy.
+    Inputs:
+    - true_labels: list of true labels
+    - pred_labels: list of raw output scores from the model
+    - k: number of top classes to consider
+    Outputs:
+    - accuracy: top k accuracy
+    """
+
+    # Convert the list of predicted scores to a tensor
+    pred_scores = torch.tensor(pred_labels)
+
+    # Compute the softmax over the predicted scores to get probabilities
+    pred_probs = torch.softmax(pred_scores, dim=-1)
+    # Get the top k classes for each prediction
+    _, topk_classes = pred_probs.topk(k, dim=-1)
+    # Compute the accuracy for each prediction
+    correct = 0
+    for i in range(len(true_labels)):
+        correct += sum([true_labels[i] in pred for pred in topk_classes[i]])
+    topk_accuracy = correct / len(true_labels)
+
+    return topk_accuracy
 
 
 if __name__ == "__main__":
