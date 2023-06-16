@@ -47,9 +47,7 @@ def train_model(model, train_dataloader, device, loss_function, optimizer, num_e
             if mode == "et_reconstruction":
                 data_copy["et"] = data["et"][:, :snippet_length, :]
                 out = model(data_copy, p_num)
-                # print(f'ET copy shape {data_copy["et"].shape}')
-                # print(f'out shape {out.shape}')
-                loss = loss_function(out[:, snippet_length:, :],
+                loss = loss_function(out,
                                      data["et"][:, snippet_length:, :])
             elif mode == "classification":
                 out = model(data)
@@ -88,6 +86,8 @@ def test_model(model, test_dataloader, device, loss_function, mode):
     snippet_length = 200
     true_labels = []
     pred_labels = []
+    pred_et = []
+    true_et = []
     with torch.no_grad():
         for data in test_dataloader:
             data = {key: value.to(device) for key, value in data.items()}
@@ -96,7 +96,10 @@ def test_model(model, test_dataloader, device, loss_function, mode):
             if mode == "et_reconstruction":
                 data_copy["et"] = data["et"][:, :snippet_length, :]
                 out = model(data_copy, p_num)
-                loss = loss_function(out[:, snippet_length:, :],
+                pred_et.append(out)
+                true_et.append(data["et"][:, snippet_length:, :])
+                print("pred_et len, shape:", len(pred_et), out.shape)
+                loss = loss_function(out,
                                      data["et"][:, snippet_length:, :])
             elif mode == "classification":
                 pred_p = model(data_copy)
@@ -108,10 +111,10 @@ def test_model(model, test_dataloader, device, loss_function, mode):
             test_loss += loss.item()
 
     test_loss = test_loss / len(test_dataloader)
-    return test_loss, true_labels, pred_labels
+    return test_loss, true_labels, pred_labels, pred_et, true_et
 
 
-def objective(trial, train_dataset, test_dataset, device, mode, summarise=False):
+def objective(trial, train_dataset, test_dataset, device, mode, modalities, summarise=False):
     """
     Main objective function for the Optuna hyperparameter search.
     Inputs:
@@ -123,33 +126,37 @@ def objective(trial, train_dataset, test_dataset, device, mode, summarise=False)
     Outputs:
     - test_loss: test loss of the model, used by Optuna to find the best hyperparameters
     """
-    num_layers = trial.suggest_int("num_layers", 2, 8)
     if mode == "et_reconstruction":
         p_num_provided = True
+        loss_function = nn.MSELoss()
     elif mode == "classification":
         p_num_provided = False
+        loss_function = nn.CrossEntropyLoss()
+
+    num_layers = trial.suggest_int("num_layers", 3, 6)
+    heads = trial.suggest_int("heads", 8, 16, step=4)
     config = {
         "num_layers": num_layers,
-        "heads": trial.suggest_int("heads", 16, 32, step=8),
+        "heads": heads,
         "forward_expansion": trial.suggest_int("forward_expansion", 2, 4, step=2),
         "dropout": trial.suggest_float("dropout", 0.1, 0.5, step=0.1),
         "lr": trial.suggest_float("lr", 1e-4, 1e-3),
         "batch_size": trial.suggest_int("batch_size", 64, 128, step=64),
         "n_bottlenecks": trial.suggest_int("n_bottlenecks", 4, 16, step=4),
-        "fusion_layer": trial.suggest_int("fusion_layer", 2, num_layers),
-        "num_epochs": trial.suggest_int("num_epochs", 2, 5, step=1),
+        "fusion_layer": trial.suggest_int("fusion_layer", 2, num_layers-1),
+        "num_epochs": 1,  # trial.suggest_int("num_epochs", 2, 5, step=1),
         "L2": trial.suggest_float("L2", 1e-5, 1e-3),
+        "embed_dim": trial.suggest_int("embed_dim", 16*heads, 16*heads, step=heads),
         "p_num_embed_dim": 4,
-        "embed_dim": trial.suggest_int("embed_dim", 48, 192, step=48),
         "et_patch_size": 15,
-        "et_seq_len": 300,
+        "et_seq_len": 100,
         "et_dim": 4,
         "et_stride": 1,
         "img_patch_size": 25,
         "img_stride": 12,
         "sem_patch_size": 25,
         "sem_stride": 12,
-        "modalities": ["et"],
+        "modalities": modalities,
         "num_classes": 335,
         "device": device,
         "mode": mode,
@@ -165,13 +172,11 @@ def objective(trial, train_dataset, test_dataset, device, mode, summarise=False)
             summary(model, input_size=(config["batch_size"], 4, 300,
                                        config["batch_size"], 3, 600, 800,
                                        config["batch_size"], 12, 600, 800))
+            print(config)
         elif task == "GB":
             summary(model, input_size=(config["batch_size"], 4, 300))
+            print(config)
 
-    if config["mode"] == "et_reconstruction":
-        loss_function = nn.MSELoss()
-    elif config["mode"] == "classification":
-        loss_function = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=config["lr"], weight_decay=config["L2"])
 
     train_dl = DataLoader(train_dataset, batch_size=config["batch_size"], shuffle=True)
@@ -179,25 +184,30 @@ def objective(trial, train_dataset, test_dataset, device, mode, summarise=False)
 
     train_model(model, train_dl, config["device"], loss_function, optimizer,
                 config["num_epochs"], mode=model.mode)
-    test_loss, true_labels, pred_labels = test_model(model, test_dl, config["device"],
-                                                     loss_function, mode=model.mode)
+    test_loss, true_labels, pred_labels, pred_et, true_et = test_model(model, test_dl, config["device"],
+                                                                       loss_function, mode=model.mode)
+    if config["mode"] == "classification":
+        topk_acc, topk_classes = topk_accuracy(true_labels, pred_labels, k=5)
+        print(f"Top-5 accuracy: {topk_acc:.4f}")
+        print(f"Top-5 classes: {topk_classes}")
+    elif config["mode"] == "et_reconstruction":
+        torch.save(pred_et, "pred_et.pt")
+        torch.save(pred_et, "true_et.pt")
 
-    topk = topk_accuracy(true_labels, pred_labels, k=5)
     print(f"Test loss: {test_loss:.4f}")
-    print(f"Top-5 accuracy: {topk:.4f}")
 
     # Save the model if it's the best one so far
     try:
         if trial.should_prune():
             raise optuna.TrialPruned()
         elif trial.study.best_value is None or test_loss < trial.study.best_value:
-            torch.save(model.state_dict(), "MBT.pth")
+            torch.save(model.state_dict(), "MBT-ETR.pth")
     except ValueError:
         pass
     return test_loss
 
 
-def hyperparameter_optimization(train_dataset, test_dataset, device, mode, n_trials):
+def hyperparameter_optimization(train_dataset, test_dataset, device, mode, modalities, n_trials):
     """
     Hyperparameter optimization using Optuna.
     Inputs:
@@ -214,7 +224,8 @@ def hyperparameter_optimization(train_dataset, test_dataset, device, mode, n_tri
                                            train_dataset,
                                            test_dataset,
                                            device,
-                                           mode), n_trials=n_trials)
+                                           mode,
+                                           modalities), n_trials=n_trials)
     return study.best_params
 
 
@@ -226,7 +237,7 @@ if __name__ == "__main__":
     """
     # device = 'cuda' if torch.cuda.is_available() else 'cpu'
     device = 'cuda'
-    mode = 'classification'
+    mode = 'et_reconstruction'
     task = 'GB'
 
     # Prepare the data and Dataset
@@ -239,6 +250,7 @@ if __name__ == "__main__":
             sem_folder='pipeline/OSIE_tags')
         train_dataset = MultimodalDataset(train_et_folder, img_tensor, sem_tensor)
         test_dataset = MultimodalDataset(test_et_folder, img_tensor, sem_tensor)
+        modalities = ['et', 'img', 'sem']
 
     elif task == "GB":
         folder = os.path.abspath(os.path.join('DS10'))
@@ -247,10 +259,12 @@ if __name__ == "__main__":
         test_files = [os.path.join(folder, file) for file in files[-28:]]
         train_dataset = GazeBaseDataset(train_files, device)
         test_dataset = GazeBaseDataset(test_files, device)
+        modalities = ['et']
 
     # Hyperparameter optimization
     best_params = hyperparameter_optimization(train_dataset,
                                               test_dataset,
                                               device,
                                               mode,
+                                              modalities,
                                               n_trials=5)
