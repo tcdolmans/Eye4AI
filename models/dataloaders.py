@@ -50,6 +50,17 @@ class MultimodalDataset(Dataset):
 
 
 class GazeBaseDataset(Dataset):
+    """
+    Dataset class for the GazeBase data.
+    Inputs:
+    - files: list of files to load
+    - device: device to load the data on
+    - sampling_rate: sampling rate of the data
+    - selection_length: length of the selection in seconds
+    Outputs (per item):
+    - et: eye-tracking data
+    - p_num: participant number
+    """
     def __init__(self, files, device, sampling_rate=100, selection_length=3):
         self.files = files
         self.device = device
