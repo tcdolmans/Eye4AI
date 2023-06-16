@@ -7,6 +7,7 @@
 """
 import torch
 import torch.nn as nn
+import numpy as np
 
 
 class SelfAttention(nn.Module):
@@ -97,7 +98,7 @@ class TransformerBlock(nn.Module):
         )
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, value, key, query, mask):
+    def forward(self, value, key, query, mask=None):
         attention = self.attention(value,
                                    key,
                                    query,
@@ -149,13 +150,24 @@ class Encoder(nn.Module):
                             })for _ in range(num_layers)
             ])
 
-    def forward(self, x: dict[str, any], bottleneck, src_key_padding_mask):
+    def generate_positional_encoding(self, seq_len, embed_size):
+        PE = np.zeros((seq_len, embed_size))
+        for pos in range(seq_len):
+            for i in range(0, embed_size, 2):
+                PE[pos, i] = np.sin(pos / (10000 ** ((2 * i) / embed_size)))
+                if i + 1 < embed_size:
+                    PE[pos, i + 1] = np.cos(pos / (10000 ** ((2 * i) / embed_size)))
+        return torch.tensor(PE, dtype=torch.float32).to(self.device)
+
+    def forward(self, x: dict[str, any], bottleneck, src_key_padding_mask=None):
         # Assuming x contains the latent embeddings
         for modality in self.modalities:
-            embed, expand = x[modality].shape[1], x[modality].shape[0]
-            pos = self.position_embeddings[modality](torch.arange(0, embed)
-                                                     .expand(expand, -1)
-                                                     .to(self.device))
+            expand, seq_len, embed = x[modality].shape
+            pos = self.generate_positional_encoding(seq_len, embed)
+            self.register_buffer('position_encoding', pos)
+            # pos = self.position_embeddings[modality](torch.arange(0, embed)
+            #                                          .expand(expand, -1)
+            #                                          .to(self.device))
             x[modality] += pos
         for lyr in range(self.num_layers):
             encoders = self.transformer_blocks[lyr]
