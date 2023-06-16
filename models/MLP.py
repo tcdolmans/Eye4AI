@@ -3,6 +3,9 @@ from embedders import ETPatchEmbed
 
 
 class ETMLP(nn.Module):
+    """
+    MLP for ET data. Simple implementation so serve as a baseline.
+    """
     def __init__(self, config):
         super().__init__()
         self.patch_embed = ETPatchEmbed(
@@ -12,6 +15,7 @@ class ETMLP(nn.Module):
                     stride=config["et_stride"]
                     )
         self.num_classes = config["num_classes"]
+        self.dropout = nn.Dropout(config["dropout"])
         self.mode = config["mode"]
         self.flat = nn.Flatten()
         self.fc1 = nn.Linear(config["embed_dim"]**2, 2048)
@@ -32,6 +36,6 @@ class ETMLP(nn.Module):
         x = self.relu2(x)
         x = self.fc3(x)
         x = self.relu3(x)
-        x = self.fc4(x)
+        x = self.dropout(self.fc4(x))
         x = self.relu4(x)
         return x
