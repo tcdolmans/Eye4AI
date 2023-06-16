@@ -9,7 +9,7 @@ import os
 import torch
 import torch.nn as nn
 from mbt_encoder import Encoder
-from embedders import ETPatchEmbed, ImagePatchEmbed, SemanticEmbedding
+from embedders import ETPatchEmbed, ImagePatchEmbed, SemanticPatchEmbed
 
 
 class MultimodalBottleneckTransformer(nn.Module):
@@ -43,7 +43,7 @@ class MultimodalBottleneckTransformer(nn.Module):
                     stride=config["img_stride"],
                     )
             elif modality == "sem":
-                self.embedders["sem"] = SemanticEmbedding(
+                self.embedders["sem"] = SemanticPatchEmbed(
                     in_channels=12,
                     embed_dim=config["embed_dim"],
                     patch_size=config["sem_patch_size"],
@@ -115,6 +115,7 @@ class MultimodalBottleneckTransformer(nn.Module):
             class_token = self.class_tokens[modality].repeat(actual_batch_size, 1, 1)
             src_batch = torch.cat((class_token, src_batch), dim=1)
 
+            # Concatenate the start token
             if start_token is None:
                 start_token = self.start_tokens[modality].repeat(actual_batch_size, 1, 1)
 
@@ -142,7 +143,7 @@ class MultimodalBottleneckTransformer(nn.Module):
         return tgt_mask
 
     def init_bottleneck(self, src: dict[str, any], modality):
-        n, c, t = src[modality].shape
+        n, _, t = src[modality].shape
         bottleneck = nn.init.normal_(torch.empty(n, self.n_bottlenecks, t),
                                      mean=0, std=0.02).to(self.device)
         return bottleneck
@@ -167,7 +168,7 @@ class MultimodalBottleneckTransformer(nn.Module):
         tgt_mask = self.make_tgt_mask(tgt)
         bottleneck = self.init_bottleneck(src, "et")
 
-        out_src = self.transformer.encoder(src, bottleneck, src_key_padding_mask=src_mask["et"])
+        out_src = self.transformer.encoder(src, bottleneck)
         out_src_et = out_src[:, :, :self.config["embed_dim"]]
         out = self.transformer.decoder(tgt, out_src_et, tgt_key_padding_mask=tgt_mask)
 
@@ -178,7 +179,9 @@ class MultimodalBottleneckTransformer(nn.Module):
             actual_batch_size = out.size(0)
             input_flat = out.view(actual_batch_size, -1)
             out_flat = self.et_reconstruction_head(input_flat)
-            et_reconstructed = out_flat.view(actual_batch_size, 300, 4)
+            et_reconstructed = out_flat.view(actual_batch_size,
+                                             self.config["et_seq_len"],
+                                             self.config["et_dim"])
             return et_reconstructed
         # TODO: Add the other modes like image prediction or semantic prediction.
         else:
@@ -208,7 +211,7 @@ if __name__ == "__main__":
         "p_num_embed_dim": 4,
         "et_embed_dim": 192,
         "et_patch_size": 15,
-        "et_seq_len": 300,
+        "et_seq_len": 200,
         "et_dim": 4,
         "et_stride": 1,
         "img_embed_dim": 192,
