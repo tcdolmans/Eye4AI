@@ -122,7 +122,7 @@ def topk_accuracy(true_labels, pred_labels, k=5):
         correct += sum([true_labels[i] in pred for pred in topk_classes[i]])
     topk_accuracy = correct / len(true_labels)
 
-    return topk_accuracy
+    return topk_accuracy, topk_classes
 
 
 if __name__ == "__main__":
