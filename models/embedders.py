@@ -17,18 +17,22 @@ class ETPatchEmbed(nn.Module):
                  stride=1,
                  padding=7):
         super().__init__()
-        self.norm = nn.AdaptiveAvgPool1d(embed_dim)
         self.projection = nn.Conv1d(in_channels=in_channels,
                                     out_channels=embed_dim,
                                     kernel_size=kernel_size,
                                     stride=stride,
                                     padding=padding)
+        self.activation = nn.ReLU()
+        self.norm1 = nn.AdaptiveAvgPool1d(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim)
 
     def forward(self, x):
-        # x = x["et"]
+        # x = x["et"]  # Uncomment when using the MLP model.
         x = x.transpose(1, 2)
         x = self.projection(x)
-        x = self.norm(x)
+        x = self.activation(x)
+        x = self.norm1(x)
+        x = self.norm2(x)
         return x
 
 
@@ -42,22 +46,26 @@ class ImagePatchEmbed(nn.Module):
                  padding=12):
         super().__init__()
         self.patch_size = patch_size
-        self.norm = nn.AdaptiveAvgPool1d(embed_dim)
         self.projection = nn.Conv2d(in_channels=in_channels,
                                     out_channels=embed_dim,
                                     kernel_size=patch_size,
                                     stride=stride,
                                     padding=padding)
+        self.norm1 = nn.AdaptiveAvgPool2d((embed_dim, 1))
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.activation = nn.ReLU()
 
     def forward(self, x):
         x = self.projection(x)
-        x = x.flatten(2)
-        x = x.transpose(1, 2)
-        x = self.norm(x)
+        x = self.activation(x)
+        x = x.flatten(2).transpose(1, 2)
+        x = self.norm1(x)
+        x = self.squeeze(-1)
+        x = self.norm2(x)
         return x
 
 
-class SemanticEmbedding(nn.Module):
+class SemanticPatchEmbed(nn.Module):
     """Takes batch of semantic labels and returns their embeddings."""
     def __init__(self,
                  in_channels=12,
@@ -67,18 +75,22 @@ class SemanticEmbedding(nn.Module):
                  padding=12):
         super().__init__()
         self.patch_size = patch_size
-        self.norm = nn.AdaptiveAvgPool1d(embed_dim)
         self.projection = nn.Conv2d(in_channels=in_channels,
                                     out_channels=embed_dim,
                                     kernel_size=patch_size,
                                     stride=stride,
                                     padding=padding)
+        self.norm1 = nn.AdaptiveAvgPool2d((embed_dim, 1))
+        self.norm2 = nn.LayerNorm(embed_dim)
+        self.activation = nn.ReLU()
 
     def forward(self, x):
         x = self.projection(x)
-        x = x.flatten(2)
-        x = x.transpose(1, 2)
-        x = self.norm(x)
+        x = self.activation(x)
+        x = x.flatten(2).transpose(1, 2)
+        x = self.norm1(x)
+        x = x.squeeze(-1)
+        x = self.norm2(x)
         return x
 
 
