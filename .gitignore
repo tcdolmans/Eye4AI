@@ -10,6 +10,8 @@ pipeline/osie_extraction.ipynb
 models/figures
 DS10
 eval
+testing.py
+mbt_decoder.py
 old_convert_sets.py
 old_dataset_constructor.py
 Old DS10
@@ -23,3 +25,4 @@ Old DS10
 *.csv
 *.h5
 *txt
+*.gif
